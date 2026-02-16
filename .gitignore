@@ -2,3 +2,4 @@
 __pycache__/
 .env
 baseline_model/model.safetensors
+baseline_model/model.safetensors
