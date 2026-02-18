@@ -2,10 +2,15 @@ import torch
 from datasets import Dataset
 from sklearn.model_selection import train_test_split
 from transformers import T5Tokenizer, T5ForConditionalGeneration, Trainer, TrainingArguments
-from test_data import data
+# from test_data import data
+import pandas as pd
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
+
+csv_file = 'actual_data1.csv'
+df = pd.read_csv(csv_file)
+data = df.to_dict('records')
 
 tokenizer = T5Tokenizer.from_pretrained('t5-small')
 model = T5ForConditionalGeneration.from_pretrained('t5-small')
@@ -71,6 +76,7 @@ training_args = TrainingArguments(
     logging_steps=20,
     eval_strategy="epoch",
     save_strategy="epoch",
+    save_total_limit=3,
     load_best_model_at_end=True,
     metric_for_best_model="eval_loss",
 )
@@ -103,3 +109,15 @@ for i, example in enumerate(test_data):
 
 accuracy = correct / total
 print(f"\nTest Set Accuracy: {accuracy:.2%} ({correct}/{total})")
+
+# Free query mode
+# print("Enter test queries of your own (type 'exit' to quit)")
+# while True:
+#     user_query = input("Query: ")
+#     if user_query.lower() == 'exit':
+#         break
+#     predicted_sql = query_to_sql(user_query)
+#     print(f"Predicted SQL: {predicted_sql}")
+
+# trainer.save_model("baseline_model")
+# tokenizer.save_pretrained("baseline_model")
