@@ -1,5 +1,6 @@
 import os
 from typing import Optional, List, Tuple, Any
+from datetime import datetime
 
 import pandas as pd
 import torch
@@ -230,14 +231,35 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None):
             print("No valid examples (gold SQL failures).")
             return
 
-        print("\n====================")
-        print("EVAL SUMMARY")
-        print("====================")
-        print("n:", total)
-        print("execution_accuracy:", round(exec_correct / total, 4), f"({exec_correct}/{total})")
-        print("pred_sql_exec_fail_rate:", round(pred_exec_fail / total, 4), f"({pred_exec_fail}/{total})")
-        print("avg_edit_distance:", round(sum(edists) / total, 4))
-        print("avg_similarity:", round(sum(sims) / total, 4))
+        summary_lines = []
+        summary_lines.append("\n====================")
+        summary_lines.append("EVAL SUMMARY")
+        summary_lines.append("====================")
+        summary_lines.append(f"n: {total}")
+        summary_lines.append(f"execution_accuracy: {round(exec_correct / total, 4)} ({exec_correct}/{total})")
+        summary_lines.append(f"pred_sql_exec_fail_rate: {round(pred_exec_fail / total, 4)} ({pred_exec_fail}/{total})")
+        summary_lines.append(f"avg_edit_distance: {round(sum(edists) / total, 4)}")
+        summary_lines.append(f"avg_similarity: {round(sum(sims) / total, 4)}")
+
+        # Print to console
+        for line in summary_lines:
+            print(line)
+
+        # Save to file
+        results_dir = "results"
+        os.makedirs(results_dir, exist_ok=True)
+
+        # Create timestamp (safe for filenames)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+        # Add timestamp to filename
+        summary_path = os.path.join(results_dir, f"eval_summary_{timestamp}.txt")
+
+        with open(summary_path, "w") as f:
+            for line in summary_lines:
+                f.write(line + "\n")
+
+        print(f"\nSummary saved to {summary_path}")
 
     finally:
         conn.close()
