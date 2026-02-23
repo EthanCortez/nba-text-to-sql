@@ -5,3 +5,5 @@ baseline_model/model.safetensors
 baseline_model/model.safetensors
 .DS_Store
 .vscode/
+results/
+llama_results/
