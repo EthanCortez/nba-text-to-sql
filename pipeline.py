@@ -1,5 +1,6 @@
 import os
 from typing import Optional, List, Tuple, Any
+from datetime import datetime
 
 import pandas as pd
 import torch
@@ -247,10 +248,17 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None):
         # Save to file
         results_dir = "results"
         os.makedirs(results_dir, exist_ok=True)
-        summary_path = os.path.join(results_dir, "eval_summary.txt")
+
+        # Create timestamp (safe for filenames)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+        # Add timestamp to filename
+        summary_path = os.path.join(results_dir, f"eval_summary_{timestamp}.txt")
+
         with open(summary_path, "w") as f:
             for line in summary_lines:
                 f.write(line + "\n")
+
         print(f"\nSummary saved to {summary_path}")
 
     finally:
