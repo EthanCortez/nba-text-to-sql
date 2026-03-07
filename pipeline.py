@@ -1,6 +1,7 @@
 import os
 from typing import Optional, List, Tuple, Any
 from datetime import datetime
+from collections import defaultdict
 
 import pandas as pd
 import torch
@@ -10,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Uses your Postgres-ready evaluate.py
-from evaluate import execute_sql, is_correct_execution, edit_distance_metrics
+from scripts.evaluate import execute_sql, is_correct_execution, edit_distance_metrics, categorize_sql_error
 
 
 # ----------------------------
@@ -214,6 +215,7 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, mode
     pred_exec_fail = 0
     edists = []
     sims = []
+    error_counts = defaultdict(int)
 
     try:
         for idx, row in df.iterrows():
@@ -232,9 +234,14 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, mode
                 correct, _, _, pred_err = is_correct_execution(
                     conn, gold_sql, pred_sql, normalize=True
                 )
+
                 exec_correct += correct
+
                 if pred_err:
                     pred_exec_fail += 1
+                    category = categorize_sql_error(pred_err, pred_sql)
+                    error_counts[category] += 1
+                    print("SQL error category:", category)
             except RuntimeError:
                 # gold SQL failed -> dataset issue; count as skipped
                 total -= 1
@@ -256,6 +263,9 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, mode
         summary_lines.append(f"pred_sql_exec_fail_rate: {round(pred_exec_fail / total, 4)} ({pred_exec_fail}/{total})")
         summary_lines.append(f"avg_edit_distance: {round(sum(edists) / total, 4)}")
         summary_lines.append(f"avg_similarity: {round(sum(sims) / total, 4)}")
+        summary_lines.append("error_breakdown:")
+        for k, v in sorted(error_counts.items(), key=lambda x: (-x[1], x[0])):
+            summary_lines.append(f"{k}: {v}")
 
         # Print to console
         for line in summary_lines:

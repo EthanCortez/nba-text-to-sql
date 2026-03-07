@@ -135,3 +135,72 @@ def edit_distance_metrics(gold_sql: str, pred_sql: str):
     similarity = 1.0 - (dist / denom)
 
     return dist, similarity
+
+# Categorize SQL errors (simple Postgres heuristics)
+def categorize_sql_error(err_msg: str, sql: str = "") -> str:
+    """
+    Categorize common Postgres SQL failures using simple string/regex rules.
+
+    Returns one of:
+      - "syntax_error"
+      - "missing_table"
+      - "missing_column"
+      - "ambiguous_column"
+      - "type_mismatch"
+      - "group_by_error"
+      - "join_error"
+      - "function_error"
+      - "permission_error"
+      - "timeout_or_cancelled"
+      - "other_execution_error"
+      - "unknown" (if err_msg empty)
+    """
+    if not err_msg:
+        return "unknown"
+
+    e = err_msg.lower()
+    s = (sql or "").lower()
+
+    # --- syntax / parse errors ---
+    if "syntax error at or near" in e or "unterminated" in e or "invalid input syntax" in e:
+        return "syntax_error"
+
+    # --- missing relations / columns ---
+    if "relation" in e and "does not exist" in e:
+        return "missing_table"
+    if "column" in e and "does not exist" in e:
+        return "missing_column"
+    if "ambiguous" in e and "column" in e:
+        return "ambiguous_column"
+
+    # --- grouping / aggregation mistakes ---
+    if "must appear in the group by clause" in e or "aggregate" in e and "group by" in e:
+        return "group_by_error"
+
+    # --- join-ish errors (heuristic) ---
+    # Common messages:
+    # - "invalid reference to FROM-clause entry"
+    # - "missing FROM-clause entry for table"
+    # - "there is no unique or exclusion constraint matching"
+    # Also, if SQL uses JOIN and the error mentions FROM-clause entries, treat as join_error.
+    if ("from-clause" in e and ("missing" in e or "invalid reference" in e)) or \
+       ("join" in s and "from-clause" in e) or \
+       ("join" in s and "invalid reference" in e):
+        return "join_error"
+
+    # --- type issues ---
+    if "operator does not exist" in e or "invalid input syntax for type" in e or "cannot cast" in e:
+        return "type_mismatch"
+
+    # --- function / operator issues ---
+    if "function" in e and "does not exist" in e:
+        return "function_error"
+
+    # --- permissions / timeouts ---
+    if "permission denied" in e:
+        return "permission_error"
+    if "canceling statement due to" in e or "timeout" in e:
+        return "timeout_or_cancelled"
+
+    return "other_execution_error"
+
