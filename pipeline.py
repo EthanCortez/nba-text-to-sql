@@ -216,11 +216,19 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, mode
     edists = []
     sims = []
     error_counts = defaultdict(int)
+    difficulty_stats = {
+        "easy": {"total": 0, "correct": 0, "fail": 0, "edists": []},
+        "medium": {"total": 0, "correct": 0, "fail": 0, "edists": []},
+        "hard": {"total": 0, "correct": 0, "fail": 0, "edists": []},
+    }
 
     try:
         for idx, row in df.iterrows():
             question = str(row["input"])
             gold_sql = str(row["output"])
+            difficulty = str(row.get("difficulty", "unknown")).lower()
+            if difficulty in difficulty_stats:
+                difficulty_stats[difficulty]["total"] += 1
 
             pred_sql = query_to_sql(question)
 
@@ -228,6 +236,8 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, mode
             d, s = edit_distance_metrics(gold_sql, pred_sql)
             edists.append(d)
             sims.append(s)
+            if difficulty in difficulty_stats:
+                difficulty_stats[difficulty]["edists"].append(d)
 
             # exec accuracy
             try:
@@ -236,11 +246,16 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, mode
                 )
 
                 exec_correct += correct
+                if difficulty in difficulty_stats:
+                    difficulty_stats[difficulty]["correct"] += correct
 
                 if pred_err:
                     pred_exec_fail += 1
                     category = categorize_sql_error(pred_err, pred_sql)
                     error_counts[category] += 1
+                    
+                    if difficulty in difficulty_stats:
+                        difficulty_stats[difficulty]["fail"] += 1
                     print("SQL error category:", category)
             except RuntimeError:
                 # gold SQL failed -> dataset issue; count as skipped
@@ -263,6 +278,16 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, mode
         summary_lines.append(f"pred_sql_exec_fail_rate: {round(pred_exec_fail / total, 4)} ({pred_exec_fail}/{total})")
         summary_lines.append(f"avg_edit_distance: {round(sum(edists) / total, 4)}")
         summary_lines.append(f"avg_similarity: {round(sum(sims) / total, 4)}")
+        summary_lines.append("difficulty_breakdown:")
+        for level in ["easy", "medium", "hard"]:
+            stats = difficulty_stats[level]
+            if stats["total"] > 0:
+                acc = round(stats["correct"] / stats["total"], 4)
+                fail_rate = round(stats["fail"] / stats["total"], 4)
+                avg_ed = round(sum(stats["edists"]) / len(stats["edists"]), 4) if stats["edists"] else 0.0
+                summary_lines.append(
+                    f"{level}: n={stats['total']}, accuracy={acc}, fail_rate={fail_rate}, avg_edit_distance={avg_ed}"
+                )
         summary_lines.append("error_breakdown:")
         for k, v in sorted(error_counts.items(), key=lambda x: (-x[1], x[0])):
             summary_lines.append(f"{k}: {v}")
