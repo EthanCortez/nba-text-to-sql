@@ -22,6 +22,33 @@ model = None
 device = None
 model_type_global = None
 
+# For advanced model prompting
+NBA_SCHEMA = """
+Database Schema:
+
+team(team_id, abbreviation, nickname, year_founded, city)
+
+player(player_id, player_name, college, country, draft_year, draft_round, draft_number)
+
+game(game_id, team_id_home_id, team_id_away_id, season_id, date)
+
+player_game_log(player_id, game_id, team_id, season_id, wl, min, fgm, fga, fg_pct, fg3m, fg3a, fg3_pct, ftm, fta, ft_pct, oreb, dreb, reb, ast, tov, stl, blk, pf, pts, plus_minus, nba_fantasy_pts, dd2, td3)
+PRIMARY KEY: (player_id, game_id)
+
+player_season(id, player_id, season_id, team_id, age, player_height, player_height_inches, player_weight, gp, pts, reb, ast, net_rating, oreb_pct, dreb_pct, usg_pct, ts_pct, ast_pct)
+UNIQUE: (player_id, season_id)
+Note: pts, reb, ast are per-game averages
+
+player_general_traditional_total(id, player_id, season_id, team_id, age, gp, w, l, w_pct, min, fgm, fga, fg_pct, fg3m, fg3a, fg3_pct, ftm, fta, ft_pct, oreb, dreb, reb, ast, tov, stl, blk, pf, pts, plus_minus, nba_fantasy_pts, dd2, td3)
+UNIQUE: (player_id, season_id)
+Note: Contains season TOTALS, not averages
+
+Important Notes:
+- season_id format: 22023 means 2023-24 season
+- player_season contains PER-GAME stats
+- player_general_traditional_total contains SEASON TOTALS
+"""
+
 # ----------------------------
 # 1) Postgres connection
 # ----------------------------
@@ -94,7 +121,7 @@ def query_to_sql(query: str) -> str:
 
     elif model_type_global == "advanced":
         messages = [
-            {"role": "system", "content": "You are a SQL expert. Convert the user's natural language question into a valid SQL query. Output only the SQL query with no explanation."},
+            {"role": "system", "content": "You are a SQL expert. Convert the user's natural language question into a valid PostgreSQL query using only the tables and columns from the schema below. Ignore the play_by_play and event_message_type tables. Output only the SQL query with no explanation. " + NBA_SCHEMA},
             {"role": "user", "content": query}
         ]
         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
