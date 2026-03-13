@@ -1,3 +1,11 @@
+"""
+Uses Llama as a judge to evaluate the correctness of SQL queries against their natural language counterparts
+
+Before usage:
+    log in to Llama authorization (hf auth login)
+    load in PostgreSQL database with load_db_from_csv.py
+"""
+
 import argparse
 import csv
 import json
@@ -35,6 +43,9 @@ SYSTEM_PROMPT = textwrap.dedent("""
       INCORRECT - does not answer the question, returned an error, or returned nothing unexpectedly.""").strip()
 
 def get_connection(host, port, dbname, user, password):
+    """
+    Connects to PostgreSQL
+    """
     conn = psycopg2.connect(
         host=host,
         port=port,
@@ -46,6 +57,9 @@ def get_connection(host, port, dbname, user, password):
     return conn
 
 def run_query(conn, sql):
+    """
+    Executes SQL query
+    """
     try:
         with conn.cursor() as cur:
             cur.execute(sql)
@@ -58,21 +72,27 @@ def run_query(conn, sql):
 
 
 def format_result(columns, rows, max_rows):
+    """
+    Formats SQL results
+    """
     if not columns:
         return "(no rows returned)"
     header = " | ".join(columns)
     sep    = "-" * 20
     lines  = [header, sep]
     for row in rows[:max_rows]:
-        row_str = ",".join("" if v is None else str(v) for v in row)
+        row_str = " | ".join("" if v is None else str(v) for v in row)
         lines.append(row_str)
-        lines.append("")
     # Making sure output isn't too long
     if len(rows) > max_rows:
         lines.append(f"... ({len(rows) - max_rows} rows not shown)")
+    lines.append("")
     return "\n".join(lines)
 
 def load_llm(model_name):
+    """
+    Loads LLM
+    """
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     # Trying to suppress a warning
     tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -90,6 +110,9 @@ def load_llm(model_name):
 
 
 def judge(pipe, natural_query, sql, result_text, error):
+    """
+    Uses Llama to evaluate SQL output to natural query with verdict + reasoning
+    """
     if error:
         result_block = f"SQL ERROR:\n{error}"
     else:
@@ -131,6 +154,9 @@ def judge(pipe, natural_query, sql, result_text, error):
         return {"verdict": "ERROR", "reasoning": f"LLM call failed: {e}"}
     
 def main():
+    """
+    Pipeline through which entire process works
+    """
     parser = argparse.ArgumentParser(
         description="Use Llama as a judge to evaluate validity of SQL queries."
     )
@@ -162,14 +188,14 @@ def main():
     correct = partial = incorrect = errors = 0
 
     for i, row in enumerate(rows_in, 1):
-        natural = row.get("input",  "").strip()
-        sql = row.get("output", "").strip()
+        natural = (row.get("input") or "").strip()
+        sql = (row.get("output") or "").strip()
 
         columns, data_rows, error = run_query(conn, sql)
         result_text = format_result(columns, data_rows, 50)
 
         if error:
-            print(f"SQL ERROR: {error[:100]}")
+            print(f"SQL ERROR: {error}")
 
         eval_out = judge(pipe, natural, sql, result_text, error)
         verdict = eval_out["verdict"]
