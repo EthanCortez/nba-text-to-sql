@@ -161,10 +161,10 @@ def main():
         description="Use Llama as a judge to evaluate validity of SQL queries."
     )
     parser.add_argument("--host", type=str, default="localhost")
-    parser.add_argument("--port", type=int, default=2020)
-    parser.add_argument("--dbname", type=str, default="postgres")
+    parser.add_argument("--port", type=int, default=5432)
+    parser.add_argument("--dbname", type=str, default="nba")
     parser.add_argument("--user", type=str, default="postgres")
-    parser.add_argument("--password", type=str, default="team20pass")
+    parser.add_argument("--password", type=str, default="password")
     parser.add_argument("--input", type=str, default="data/actual_data1.csv")
     parser.add_argument("--output", type=str, default="results.csv")
 
