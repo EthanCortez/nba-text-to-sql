@@ -5,13 +5,14 @@ from collections import defaultdict
 
 import pandas as pd
 import torch
-from transformers import T5Tokenizer, T5ForConditionalGeneration
+from transformers import T5Tokenizer, T5ForConditionalGeneration, AutoTokenizer, AutoModelForCausalLM, pipeline
 
 from dotenv import load_dotenv
 load_dotenv()
 
 # Uses your Postgres-ready evaluate.py
 from scripts.evaluate import execute_sql, is_correct_execution, edit_distance_metrics, categorize_sql_error
+from eval_queries import judge
 
 
 # ----------------------------
@@ -21,6 +22,7 @@ tokenizer = None
 model = None
 device = None
 model_type_global = None
+llm_judge = None
 
 # For advanced model prompting
 NBA_SCHEMA = """
@@ -111,6 +113,26 @@ def load_model(model_dir: str, model_type: str = "baseline"):
 
     model.eval()
 
+def load_judge():
+    """
+    Loads in Llama for judgement
+    """
+    global llm_judge
+    if llm_judge is not None:
+        return
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
+    tokenizer.pad_token_id = tokenizer.eos_token_id
+    model = AutoModelForCausalLM.from_pretrained(
+        "meta-llama/Llama-3.1-8B-Instruct", 
+        device_map="auto"
+    )
+    llm_judge = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        max_new_tokens=256,
+    )
+
 def query_to_sql(query: str) -> str:
     if model_type_global == "baseline":
         prefixed_query = f"translate English to SQL: {query}"
@@ -159,7 +181,7 @@ def print_rows(rows: List[Tuple[Any, ...]], max_rows: int = 20):
 # ----------------------------
 # 4) One-example end-to-end run
 # ----------------------------
-def run_one(model_dir: str, question: str, gold_sql: Optional[str] = None, model_type: str = "baseline"):
+def run_one(model_dir: str, question: str, gold_sql: Optional[str] = None, model_type: str = "baseline", use_judge: bool = False):
     load_model(model_dir, model_type)
 
     pred_sql = query_to_sql(question)
@@ -178,6 +200,11 @@ def run_one(model_dir: str, question: str, gold_sql: Optional[str] = None, model
     try:
         # Run predicted SQL and print results
         ok, pred_rows, pred_err = execute_sql(conn, pred_sql)
+        result_text = "\n".join(str(r) for r in (pred_rows or [])[:50]) if ok else ""
+        
+        if use_judge:
+            load_judge()
+            judgment = judge(llm_judge, question, pred_sql, result_text, pred_err or "")
 
         print("\n====================")
         print("POSTGRES RESULT (pred)")
@@ -186,6 +213,13 @@ def run_one(model_dir: str, question: str, gold_sql: Optional[str] = None, model
             print_rows(pred_rows)
         else:
             print("SQL ERROR:", pred_err)
+
+        if use_judge:
+            print("\n====================")
+            print("JUDGE VERDICT")
+            print("====================")
+            print("verdict:  ", judgment["verdict"])
+            print("reasoning:", judgment["reasoning"])
 
         # If no gold SQL provided, stop here
         if gold_sql is None:
@@ -228,12 +262,15 @@ def run_one(model_dir: str, question: str, gold_sql: Optional[str] = None, model
 # ----------------------------
 # 5) CSV eval mode (optional)
 # ----------------------------
-def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, model_type: str = "baseline"):
+def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, model_type: str = "baseline", use_judge: bool = False):
     df = pd.read_csv(csv_path)
     if limit is not None:
         df = df.head(limit)
 
     load_model(model_dir, model_type)
+
+    if use_judge:
+        load_judge()
 
     conn = pg_connect()
 
@@ -242,6 +279,7 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, mode
     pred_exec_fail = 0
     edists = []
     sims = []
+    correct_j = partial_j = incorrect_j = 0
     error_counts = defaultdict(int)
     difficulty_stats = {
         "easy": {"total": 0, "correct": 0, "fail": 0, "edists": []},
@@ -265,6 +303,20 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, mode
             sims.append(s)
             if difficulty in difficulty_stats:
                 difficulty_stats[difficulty]["edists"].append(d)
+
+            # judge correctness
+            if use_judge:
+                ok, pred_rows, pred_err = execute_sql(conn, pred_sql)
+                result_text = "\n".join(str(r) for r in (pred_rows or [])[:50]) if ok else ""
+                judgment = judge(llm_judge, question, pred_sql, result_text, pred_err or "")
+                verdict = judgment["verdict"]
+                print(f"Judge: {verdict} — {judgment['reasoning']}")
+                if verdict == "CORRECT":
+                    correct_j += 1
+                elif verdict == "PARTIAL":
+                    partial_j += 1
+                else:
+                    incorrect_j += 1
 
             # exec accuracy
             try:
@@ -319,6 +371,10 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, mode
         for k, v in sorted(error_counts.items(), key=lambda x: (-x[1], x[0])):
             summary_lines.append(f"{k}: {v}")
 
+        if use_judge:
+            summary_lines.append(f"judge_correct:   {round(correct_j/total, 4)} ({correct_j}/{total})")
+            summary_lines.append(f"judge_partial:   {round(partial_j/total, 4)} ({partial_j}/{total})")
+            summary_lines.append(f"judge_incorrect: {round(incorrect_j/total, 4)} ({incorrect_j}/{total})")
         # Print to console
         for line in summary_lines:
             print(line)
@@ -355,14 +411,15 @@ if __name__ == "__main__":
     ap.add_argument("--model_type", type=str, choices=["baseline", "advanced"], default="baseline")
     ap.add_argument("--question", type=str, default=None)
     ap.add_argument("--gold_sql", type=str, default=None)
-    ap.add_argument("--csv", type=str, default="test_data.csv")
+    ap.add_argument("--csv", type=str, default="data/actual_data1.csv")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--use_judge", type=bool, default=False)
 
     args = ap.parse_args()
 
     if args.mode == "one":
         if args.question is None:
             args.question = input("Enter question: ").strip()
-        run_one(args.model_dir, args.question, gold_sql=args.gold_sql, model_type=args.model_type)
+        run_one(args.model_dir, args.question, gold_sql=args.gold_sql, model_type=args.model_type, use_judge=args.use_judge)
     else:
-        eval_on_csv(args.model_dir, args.csv, limit=args.limit, model_type=args.model_type)
+        eval_on_csv(args.model_dir, args.csv, limit=args.limit, model_type=args.model_type, use_judge=args.use_judge)
