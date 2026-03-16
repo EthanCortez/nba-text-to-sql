@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Optional, List, Tuple, Any
 from datetime import datetime
 from collections import defaultdict
@@ -26,7 +27,7 @@ llm_judge = None
 
 # For advanced model prompting
 NBA_SCHEMA = """
-Database Schema:
+Tables and their exact column names:
 
 team(team_id, abbreviation, nickname, year_founded, city)
 
@@ -39,17 +40,64 @@ PRIMARY KEY: (player_id, game_id)
 
 player_season(id, player_id, season_id, team_id, age, player_height, player_height_inches, player_weight, gp, pts, reb, ast, net_rating, oreb_pct, dreb_pct, usg_pct, ts_pct, ast_pct)
 UNIQUE: (player_id, season_id)
-Note: pts, reb, ast are per-game averages
+[PER-GAME averages: pts, reb, ast]
 
 player_general_traditional_total(id, player_id, season_id, team_id, age, gp, w, l, w_pct, min, fgm, fga, fg_pct, fg3m, fg3a, fg3_pct, ftm, fta, ft_pct, oreb, dreb, reb, ast, tov, stl, blk, pf, pts, plus_minus, nba_fantasy_pts, dd2, td3)
 UNIQUE: (player_id, season_id)
-Note: Contains season TOTALS, not averages
-
-Important Notes:
-- season_id format: 22023 means 2023-24 season
-- player_season contains PER-GAME stats
-- player_general_traditional_total contains SEASON TOTALS
+[SEASON TOTALS: pts, reb, ast, tov, stl, blk, pf, fg3a, fg3m, fga, fgm, etc.]
 """
+
+SYSTEM_PROMPT = (
+    "Convert the question to a single valid PostgreSQL SELECT statement. "
+    "Output the SQL and nothing else — no explanation, no markdown, no comments.\n\n"
+
+    "HARD RULES:\n"
+    "- Only use table/column names that appear verbatim in the schema. Never invent names.\n"
+    "- No -- comments. No /* */ comments. No IF/THEN/ELSE. No RETURN. No procedural code.\n"
+    "- No backticks. No TOP(). No ISNULL(). No CHARINDEX(). No GETDATE().\n"
+    "- Never wrap a column in a made-up function. Write ps.pts not pt(pts) or pts() or any wrapper.\n"
+    "- Use IS NULL / IS NOT NULL. Never != NULL or = NULL.\n"
+    "- One SELECT statement only. End with a semicolon. Write nothing after the semicolon.\n\n"
+
+    "SEASON ID:\n"
+    "season_id = 20000 + (year mentioned - 1). The year refers to when the season ENDS.\n"
+    "  question says 2023 → 2022-23 season → season_id = 22022\n"
+    "  question says 2018 → 2017-18 season → season_id = 22017\n"
+    "  question says 2008 → 2007-08 season → season_id = 22007\n\n"
+
+    "TABLE CHOICE:\n"
+    "  Totals (top-N by raw counting stat, total pts/reb/ast/tov/blk/stl/pf/fg3a): use player_general_traditional_total\n"
+    "  Per-game averages: use player_season\n"
+    "  Game-by-game: use player_game_log\n\n"
+
+    + NBA_SCHEMA +
+
+    "\nEXAMPLES:\n"
+    "Q: top 5 scorers in 2023\n"
+    "A: SELECT p.player_name, ps.pts FROM player p JOIN player_season ps ON p.player_id = ps.player_id WHERE ps.season_id = 22022 ORDER BY ps.pts DESC LIMIT 5;\n\n"
+
+    "Q: top 5 players by turnovers in 2008\n"
+    "A: SELECT p.player_name, pg.tov FROM player p JOIN player_general_traditional_total pg ON p.player_id = pg.player_id WHERE pg.season_id = 22007 ORDER BY pg.tov DESC LIMIT 5;\n\n"
+
+    "Q: top 5 players by fouls in 2007\n"
+    "A: SELECT p.player_name, pg.pf FROM player p JOIN player_general_traditional_total pg ON p.player_id = pg.player_id WHERE pg.season_id = 22006 ORDER BY pg.pf DESC LIMIT 5;\n\n"
+
+    "Q: how many players shot over 40 percent from three in 2018 with at least 100 attempts\n"
+    "A: SELECT COUNT(*) AS num_players FROM player_general_traditional_total WHERE season_id = 22017 AND fg3_pct > 0.40 AND fg3a >= 100;\n\n"
+
+    "Q: LeBron James points per game in 2020\n"
+    "A: SELECT ps.pts FROM player_season ps JOIN player p ON ps.player_id = p.player_id WHERE p.player_name = 'LeBron James' AND ps.season_id = 22019;\n\n"
+
+    "Q: which team had the most wins in 2022\n"
+    "A: SELECT t.nickname, COUNT(*) AS wins FROM player_game_log pgl JOIN team t ON pgl.team_id = t.team_id WHERE pgl.season_id = 22021 AND pgl.wl = 'W' GROUP BY t.nickname ORDER BY wins DESC LIMIT 1;\n\n"
+
+    "Q: players who averaged more than 25 points per game in 2016\n"
+    "A: SELECT p.player_name, ps.pts FROM player_season ps JOIN player p ON ps.player_id = p.player_id WHERE ps.season_id = 22015 AND ps.pts > 25;\n\n"
+
+    "Q: top 5 shot blockers in 2014\n"
+    "A: SELECT p.player_name, pg.blk FROM player p JOIN player_general_traditional_total pg ON p.player_id = pg.player_id WHERE pg.season_id = 22013 ORDER BY pg.blk DESC LIMIT 5;\n\n"
+)
+
 
 # ----------------------------
 # 1) Postgres connection
@@ -133,6 +181,40 @@ def load_judge():
         max_new_tokens=256,
     )
 
+def clean_sql(raw: str) -> str:
+    """Strip model artifacts and extract the first valid SELECT statement."""
+    # Strip markdown fences
+    raw = re.sub(r"```sql", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"```", "", raw)
+
+    # Strip "A:" prefix the model may echo back
+    raw = re.sub(r"^(A:|Answer:|SQL:|Query:)\s*", "", raw.strip(), flags=re.IGNORECASE)
+
+    # Remove inline -- comments (cause the model to ramble inside the query)
+    raw = re.sub(r"--[^\n]*", "", raw)
+
+    # Remove block comments
+    raw = re.sub(r"/\*.*?\*/", "", raw, flags=re.DOTALL)
+
+    # Collapse whitespace
+    raw = re.sub(r"\s+", " ", raw).strip()
+
+    # Truncate at the first semicolon — nothing after it is valid SQL
+    if ";" in raw:
+        raw = raw[:raw.index(";") + 1]
+
+    # If it doesn't start with SELECT, hunt for one
+    if not re.match(r"^\s*SELECT\b", raw, flags=re.IGNORECASE):
+        m = re.search(r"(SELECT\b.*)", raw, flags=re.IGNORECASE | re.DOTALL)
+        if m:
+            raw = m.group(1)
+            if ";" in raw:
+                raw = raw[:raw.index(";") + 1]
+        else:
+            return "SELECT NULL -- model produced no valid SQL"
+
+    return raw.strip()
+
 def query_to_sql(query: str) -> str:
     if model_type_global == "baseline":
         prefixed_query = f"translate English to SQL: {query}"
@@ -143,21 +225,25 @@ def query_to_sql(query: str) -> str:
 
     elif model_type_global == "advanced":
         messages = [
-            {"role": "system", "content": "You are a SQL expert. Convert the user's natural language question into a valid PostgreSQL query using only the tables and columns from the schema below. Ignore the play_by_play and event_message_type tables. Output only the SQL query with no explanation. " + NBA_SCHEMA},
-            {"role": "user", "content": query}
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Q: {query}\nA:"}
         ]
         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=256,
+                max_new_tokens=120,
+                do_sample=False,
                 num_beams=1,
-                repetition_penalty=1.5,
-                pad_token_id=tokenizer.eos_token_id
+                repetition_penalty=1.3,
+                pad_token_id=tokenizer.eos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
             )
-        new_tokens = outputs[0][inputs['input_ids'].shape[1]:]
-        return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        new_tokens = outputs[0][inputs["input_ids"].shape[1]:]
+        raw = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        return clean_sql(raw)
+
 
 # ----------------------------
 # 3) Printing helpers
