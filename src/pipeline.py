@@ -43,7 +43,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Uses your Postgres-ready evaluate.py
-from scripts.evaluate import execute_sql, is_correct_execution, edit_distance_metrics, categorize_sql_error
+from src.scripts.evaluate import execute_sql, is_correct_execution, edit_distance_metrics, categorize_sql_error, plot_edit_distance_distribution
+
 from eval_queries import judge
 
 
@@ -379,7 +380,7 @@ def run_one(model_dir: str, question: str, gold_sql: Optional[str] = None, model
 # ----------------------------
 # 5) CSV eval mode (optional)
 # ----------------------------
-def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, model_type: str = "baseline", use_judge: bool = False):
+def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, model_type: str = "baseline", use_judge: bool = False, plot: bool = False):
     df = pd.read_csv(csv_path)
     if limit is not None:
         df = df.head(limit)
@@ -511,7 +512,12 @@ def eval_on_csv(model_dir: str, csv_path: str, limit: Optional[int] = None, mode
                 f.write(line + "\n")
 
         print(f"\nSummary saved to {summary_path}")
-
+        if plot:
+            import numpy as np
+            summary_lines.append(f"median_edit_distance: {round(float(np.median(edists)), 4)}")
+            summary_lines.append(f"edit_distance_p90:    {round(float(np.percentile(edists, 90)), 4)}")
+            plot_path = os.path.join(results_dir, f"edit_distance_dist_{timestamp}.png")
+            plot_edit_distance_distribution(edists, save_path=plot_path)
     finally:
         conn.close()
 

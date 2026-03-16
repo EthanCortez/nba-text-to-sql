@@ -1,3 +1,13 @@
+"""
+evaluate.py
+
+Utility functions for SQL execution, correctness checking,
+edit distance, error categorization, and distribution plotting.
+Used by pipeline.py during evaluation.
+
+Author: Sabrina Park
+"""
+
 import re
 from typing import Any, List, Tuple, Optional
 
@@ -204,3 +214,35 @@ def categorize_sql_error(err_msg: str, sql: str = "") -> str:
 
     return "other_execution_error"
 
+def plot_edit_distance_distribution(edists: list, save_path: str = None):
+    """
+    Plots a histogram + KDE of edit distances with mean/median lines.
+    If save_path is provided, saves the figure there.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    arr = np.array(edists)
+    mean_val = np.mean(arr)
+    median_val = np.median(arr)
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+
+    # Histogram
+    ax.hist(arr, bins=20, color="#4C72B0", edgecolor="white", alpha=0.85, label="Edit Distance")
+
+    # Mean / median lines
+    ax.axvline(mean_val,   color="#DD4444", linewidth=2, linestyle="--", label=f"Mean:   {mean_val:.2f}")
+    ax.axvline(median_val, color="#22AA55", linewidth=2, linestyle="-",  label=f"Median: {median_val:.2f}")
+
+    ax.set_xlabel("Token-Level Edit Distance", fontsize=12)
+    ax.set_ylabel("Count", fontsize=12)
+    ax.set_title("Distribution of SQL Edit Distances", fontsize=14)
+    ax.legend()
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150)
+        print(f"Plot saved to {save_path}")
+    else:
+        plt.show()
