@@ -1,40 +1,37 @@
-How to run:
+External libraries
+- argparse (https://docs.python.org/3/library/argparse.html)
+- csv (https://docs.python.org/3/library/csv.html)
+- json (https://docs.python.org/3/library/json.html
+- textwrap (https://docs.python.org/3/library/textwrap.html)
+- re (https://docs.python.org/3/library/re.html)
+- psycopg2 (https://pypi.org/project/psycopg2/))
+- transformers (https://huggingface.co/docs/transformers)
+- os (https://docs.python.org/3/library/os.html)
+- typing (https://docs.python.org/3/library/typing.html)
+- datetime (https://docs.python.org/3/library/datetime.html)
+- collections (https://docs.python.org/3/library/collections.html)
+- pandas (https://pandas.pydata.org/)
+- torch (https://pytorch.org/)
+- dotenv (https://pypi.org/project/python-dotenv/)
+- datasets (https://huggingface.co/docs/datasets)
+- sklearn/scikit-learn (https://scikit-learn.org/)
+- peft (https://huggingface.co/docs/peft)
+- logging (https://docs.python.org/3/library/logging.html)
+- sys (https://docs.python.org/3/library/sys.html)
+- time (https://docs.python.org/3/library/time.html)
+- math (https://docs.python.org/3/library/math.html)
+- matplotlib (https://matplotlib.org/)
 
-1. Create virtual environment:
+Public Code
+- nba_api (https://github.com/swar/nba_api)
 
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-2. Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-3. Create a `.env` file:
-
-```
-PGHOST=localhost
-PGPORT=5432
-PGDATABASE=nba
-PGUSER=postgres
-PGPASSWORD=your_password
-```
-
----
-
-## Run Single Question
-
-```bash
-python pipeline.py --mode one --model_dir ./baseline_model
-```
-
----
-
-## Run Evaluation
-
-```bash
-python pipeline.py --mode eval --model_dir ./baseline_model --csv test_data.csv
-```
+Written Code
+- advanced.py: Fine tunes Llama-3.1-8B-Instruct using LoRa to train a text to SQL model (160 lines)
+- baseline.py: Fine tunes T5-small to train a text to SQL model (120 lines)
+- categorize_queries.py: Categorizes SQL outputs according to difficulty and adds further categorization for word count and query type (143 lines)
+- db.py: Builds a database containing NBA team, player, and game stats using nba-api (800 lines)
+- evaluate.py: Helper functions to evaluate SQL output and distance/correctness (200 lines)
+- eval_queries.py: Uses Llama as a judge to determine if the output of an SQL query matches the natural language query (230 lines)
+- load_db_from_csv.py: Loads database from CSV file(s) to PostGreSQL (390 lines)
+- pipline.py: Complete process of taking a model and either running a user query or evaluating the model's performance (500 lines)
+- visualization.py: Creates graphs to compare baseline and advanced model results (100 lines)
