@@ -1,5 +1,28 @@
-import matplotlib.pyplot as plt
+"""
+visualization.py
 
+Purpose:
+    Generate visualization plots for the NBA Text-to-SQL project evaluation results.
+    This script creates bar charts comparing the baseline and advanced models on:
+
+        • Execution Accuracy
+        • SQL Execution Failure Rate
+        • Average Edit Distance
+
+    The figures are saved as PNG files and displayed for inspection.
+
+Authors:
+    Sabrina Park
+
+Notes:
+    - This script was written by Sabrina Park for the project report visualizations.
+    - Uses matplotlib for plotting.
+    - The values are taken from the evaluation pipeline output (execution accuracy,
+      SQL failure rate, and edit distance metrics).
+"""
+
+
+import matplotlib.pyplot as plt
 # ----------------------
 # Data
 # ----------------------

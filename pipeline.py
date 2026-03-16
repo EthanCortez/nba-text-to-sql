@@ -1,3 +1,34 @@
+"""
+pipeline.py
+
+Purpose:
+    End-to-end pipeline for our NBA Text-to-SQL project.
+    This file loads either a baseline or advanced model, converts
+    natural-language NBA questions into SQL, executes the predicted SQL
+    on a PostgreSQL database, and evaluates model performance using
+    execution accuracy, edit distance, SQL error categorization,
+    difficulty breakdowns, and optional LLM-based judging.
+
+Main functionality:
+    1. Connect to the PostgreSQL NBA database
+    2. Load a trained text-to-SQL model
+    3. Generate SQL from a natural language question
+    4. Execute and evaluate predicted SQL
+    5. Run evaluation over a CSV dataset and save a summary report
+
+Authors:
+    Sabrina Park
+
+Source / modification notes:
+    - Most of this file was written by Sabrina Park for the NBA Text-to-SQL project.
+    - HuggingFace model loading and generation use the Transformers library API.
+    - PostgreSQL execution/evaluation utilities are imported from scripts.evaluate.
+    - The optional LLM judge wrapper is imported from eval_queries.py.
+    - If submitting this for class, you can mention that imported library APIs
+      (Transformers, pandas, torch, psycopg2, dotenv) are external dependencies,
+      while this file contains your project-specific pipeline logic.
+"""
+
 import os
 import re
 from typing import Optional, List, Tuple, Any

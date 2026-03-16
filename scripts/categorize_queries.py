@@ -1,3 +1,26 @@
+"""
+categorize_queries.py
+
+Purpose:
+    Add heuristic labels to the NBA Text-to-SQL dataset for analysis.
+    This script reads a CSV of natural-language questions and gold SQL queries,
+    then assigns:
+        1. word_count   -> number of words in the question
+        2. query_type   -> rough category of the question
+        3. difficulty   -> heuristic difficulty label (easy, medium, hard)
+
+    The output is a new CSV that can be used for evaluation breakdowns,
+    such as accuracy by difficulty level or query type.
+
+Authors:
+    Sabrina Park
+
+Source / modification notes:
+    - This script was written by Sabrina Park for the NBA Text-to-SQL project.
+    - Uses pandas for CSV processing.
+    - Difficulty labels are heuristic-based, not human-annotated.
+"""
+
 import pandas as pd
 import re
 
