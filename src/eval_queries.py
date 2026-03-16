@@ -4,6 +4,9 @@ Uses Llama as a judge to evaluate the correctness of SQL queries against their n
 Before usage:
     log in to Llama authorization (hf auth login)
     load in PostgreSQL database with load_db_from_csv.py
+
+Author:
+    Eric Wen
 """
 
 import argparse
