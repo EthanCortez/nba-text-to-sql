@@ -1,5 +1,6 @@
 """
-Uses Llama as a judge to evaluate the correctness of SQL queries against their natural language counterparts
+Purpose:
+    Uses Llama as a judge to evaluate the correctness of SQL queries against their natural language counterparts
 
 Before usage:
     log in to Llama authorization (hf auth login)
